@@ -1,8 +1,17 @@
-import { render, screen } from '@testing-library/react';
-import App from './App';
+import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import App from "./App";
 
-test('renders learn react link', () => {
+test("allows a move and updates status from Next: X to Next: O", async () => {
+  const user = userEvent.setup();
   render(<App />);
-  const linkElement = screen.getByText(/learn react/i);
-  expect(linkElement).toBeInTheDocument();
+
+  // Initial status
+  expect(screen.getByRole("status")).toHaveTextContent("Next: X");
+
+  // Click the first square (Square 1)
+  await user.click(screen.getByRole("button", { name: /square 1, empty/i }));
+
+  // Status should update
+  expect(screen.getByRole("status")).toHaveTextContent("Next: O");
 });
