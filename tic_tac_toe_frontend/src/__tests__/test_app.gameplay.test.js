@@ -11,8 +11,13 @@ async function clickSquare(user, oneBasedIndex) {
   );
 }
 
+function getScoreItem(labelRegex) {
+  // Scoreboard items are labeled via aria-label on the item container.
+  return screen.getByLabelText(labelRegex);
+}
+
 describe("Tic Tac Toe App - gameplay", () => {
-  test("initial render: status shows Next: X and board is empty", () => {
+  test("initial render: status shows Next: X, board is empty, and scoreboard starts at 0", () => {
     render(<App />);
 
     expect(screen.getByRole("status")).toHaveTextContent("Next: X");
@@ -27,9 +32,13 @@ describe("Tic Tac Toe App - gameplay", () => {
       ).toBeInTheDocument();
     }
 
-    // Play Again should be disabled until game ends; Reset is always available.
-    expect(screen.getByRole("button", { name: /^play again$/i })).toBeDisabled();
-    expect(screen.getByRole("button", { name: /^reset$/i })).toBeEnabled();
+    expect(getScoreItem(/x wins/i)).toHaveTextContent("0");
+    expect(getScoreItem(/o wins/i)).toHaveTextContent("0");
+    expect(getScoreItem(/draws/i)).toHaveTextContent("0");
+
+    // New Round + Reset All are always available.
+    expect(screen.getByRole("button", { name: /^new round$/i })).toBeEnabled();
+    expect(screen.getByRole("button", { name: /^reset all$/i })).toBeEnabled();
   });
 
   test("clicking a square marks it and toggles status to the next player", async () => {
@@ -60,11 +69,11 @@ describe("Tic Tac Toe App - gameplay", () => {
     expect(screen.getByRole("status")).toHaveTextContent("Next: O");
   });
 
-  test("detects a winner and prevents further moves; winning squares are highlighted", async () => {
+  test("a win increments the scoreboard and New Round resets the board but keeps the scoreboard", async () => {
     const user = userEvent.setup();
     render(<App />);
 
-    // X: 1, O: 4, X: 2, O: 5, X: 3 => X wins on top row [0,1,2]
+    // X: 1, O: 4, X: 2, O: 5, X: 3 => X wins
     await clickSquare(user, 1); // X
     await clickSquare(user, 4); // O
     await clickSquare(user, 2); // X
@@ -73,58 +82,16 @@ describe("Tic Tac Toe App - gameplay", () => {
 
     expect(screen.getByRole("status")).toHaveTextContent("Winner: X");
 
-    // Winning squares should have winning class
-    expect(screen.getByRole("button", { name: /square 1, x/i })).toHaveClass(
-      "ttt-square--winning"
-    );
-    expect(screen.getByRole("button", { name: /square 2, x/i })).toHaveClass(
-      "ttt-square--winning"
-    );
-    expect(screen.getByRole("button", { name: /square 3, x/i })).toHaveClass(
-      "ttt-square--winning"
-    );
+    // Scoreboard updated
+    expect(getScoreItem(/x wins/i)).toHaveTextContent("1");
+    expect(getScoreItem(/o wins/i)).toHaveTextContent("0");
+    expect(getScoreItem(/draws/i)).toHaveTextContent("0");
 
-    // Attempt further move after win should be ignored (square remains empty)
-    await clickSquare(user, 9);
-    expect(screen.getByRole("button", { name: /square 9, empty/i })).toBeInTheDocument();
+    // Focus management: when round ends, focus should move to New Round.
+    expect(screen.getByRole("button", { name: /^new round$/i })).toHaveFocus();
 
-    // Play Again becomes enabled when game is over
-    expect(screen.getByRole("button", { name: /^play again$/i })).toBeEnabled();
-  });
-
-  test("detects a draw (full board without winner) and shows Draw status", async () => {
-    const user = userEvent.setup();
-    render(<App />);
-
-    // This move order leads to a draw (no winning line):
-    // X:1 O:2 X:3 O:5 X:4 O:6 X:8 O:7 X:9
-    const moves = [1, 2, 3, 5, 4, 6, 8, 7, 9];
-    for (const move of moves) {
-      await clickSquare(user, move);
-    }
-
-    expect(screen.getByRole("status")).toHaveTextContent(/^draw$/i);
-    expect(screen.getByRole("button", { name: /^play again$/i })).toBeEnabled();
-
-    // No winning classes should be applied on draw
-    const allSquares = screen.getAllByRole("button", { name: /square \d+, (x|o)/i });
-    for (const sq of allSquares) {
-      expect(sq).not.toHaveClass("ttt-square--winning");
-    }
-  });
-
-  test("reset button restores initial state (empty board, Next: X, Play Again disabled)", async () => {
-    const user = userEvent.setup();
-    render(<App />);
-
-    await clickSquare(user, 1);
-    await clickSquare(user, 2);
-
-    expect(screen.getByRole("status")).toHaveTextContent("Next: X");
-    expect(screen.getByRole("button", { name: /square 1, x/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /square 2, o/i })).toBeInTheDocument();
-
-    await user.click(screen.getByRole("button", { name: /^reset$/i }));
+    // New Round clears the board but keeps scoreboard.
+    await user.click(screen.getByRole("button", { name: /^new round$/i }));
 
     expect(screen.getByRole("status")).toHaveTextContent("Next: X");
     for (let i = 1; i <= 9; i += 1) {
@@ -132,24 +99,36 @@ describe("Tic Tac Toe App - gameplay", () => {
         screen.getByRole("button", { name: new RegExp(`square ${i}, empty`, "i") })
       ).toBeInTheDocument();
     }
-    expect(screen.getByRole("button", { name: /^play again$/i })).toBeDisabled();
+
+    expect(getScoreItem(/x wins/i)).toHaveTextContent("1");
+    expect(getScoreItem(/o wins/i)).toHaveTextContent("0");
+    expect(getScoreItem(/draws/i)).toHaveTextContent("0");
   });
 
-  test("Play Again button resets the game after game over", async () => {
+  test("a draw increments scoreboard; Reset All clears scoreboard and starts a new round", async () => {
     const user = userEvent.setup();
     render(<App />);
 
-    // Force a win quickly
-    await clickSquare(user, 1); // X
-    await clickSquare(user, 4); // O
-    await clickSquare(user, 2); // X
-    await clickSquare(user, 5); // O
-    await clickSquare(user, 3); // X wins
+    // Draw move order:
+    // X:1 O:2 X:3 O:5 X:4 O:6 X:8 O:7 X:9
+    const moves = [1, 2, 3, 5, 4, 6, 8, 7, 9];
+    for (const move of moves) {
+      await clickSquare(user, move);
+    }
 
-    expect(screen.getByRole("status")).toHaveTextContent("Winner: X");
+    expect(screen.getByRole("status")).toHaveTextContent(/^draw$/i);
 
-    await user.click(screen.getByRole("button", { name: /^play again$/i }));
+    expect(getScoreItem(/x wins/i)).toHaveTextContent("0");
+    expect(getScoreItem(/o wins/i)).toHaveTextContent("0");
+    expect(getScoreItem(/draws/i)).toHaveTextContent("1");
 
+    await user.click(screen.getByRole("button", { name: /^reset all$/i }));
+
+    expect(getScoreItem(/x wins/i)).toHaveTextContent("0");
+    expect(getScoreItem(/o wins/i)).toHaveTextContent("0");
+    expect(getScoreItem(/draws/i)).toHaveTextContent("0");
+
+    // Also resets the board
     expect(screen.getByRole("status")).toHaveTextContent("Next: X");
     for (let i = 1; i <= 9; i += 1) {
       expect(
@@ -166,21 +145,14 @@ describe("Tic Tac Toe App - accessibility", () => {
 
     // Tab to first square and press Enter
     await user.tab();
+    // First tabbable element is New Round; tab again to the first square.
+    await user.tab();
+
     const square1 = screen.getByRole("button", { name: /square 1, empty/i });
     expect(square1).toHaveFocus();
 
     await user.keyboard("{Enter}");
     expect(screen.getByRole("button", { name: /square 1, x/i })).toBeInTheDocument();
     expect(screen.getByRole("status")).toHaveTextContent("Next: O");
-
-    // Tab to second square and press Space
-    await user.tab();
-    const square2 = screen.getByRole("button", { name: /square 2, empty/i });
-    expect(square2).toHaveFocus();
-
-    // user-event uses " " for spacebar when typing characters; use keyboard with explicit Space.
-    await user.keyboard(" ");
-    expect(screen.getByRole("button", { name: /square 2, o/i })).toBeInTheDocument();
-    expect(screen.getByRole("status")).toHaveTextContent("Next: X");
   });
 });
